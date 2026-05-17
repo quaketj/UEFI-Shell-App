@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>VGA 文本模式显存模拟器</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a1a;
+    color: #e0e0e0;
+    font-family: 'Consolas', 'Courier New', monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    min-height: 100vh;
+  }
+  h1 { color: #00ff88; font-size: 20px; margin-bottom: 4px; text-shadow: 0 0 20px rgba(0,255,136,0.4); }
+  .subtitle { color: #666; font-size: 12px; margin-bottom: 16px; }
+
+  .container { width: 980px; max-width: 100%; }
+
+  /* Info bar */
+  .info-bar {
+    background: #111122; border: 1px solid #2a2a4a; border-radius: 6px;
+    padding: 10px 16px; margin-bottom: 14px; font-size: 11px; line-height: 1.8;
+  }
+  .info-bar .c1 { color: #c084fc; }
+  .info-bar .c2 { color: #60a5fa; }
+  .info-bar .c3 { color: #f59e0b; }
+  .info-bar .hl { color: #00ff88; font-weight: bold; }
+
+  /* Controls */
+  .controls { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
+  .controls input[type="text"] {
+    background: #1a1a2e; border: 1px solid #333; color: #00ff88;
+    padding: 8px 14px; border-radius: 5px; font-family: inherit; font-size: 14px; width: 280px;
+  }
+  .controls input:focus { outline: none; border-color: #00ff88; }
+  .btn {
+    padding: 8px 20px; border: none; border-radius: 5px; font-family: inherit;
+    font-size: 13px; font-weight: bold; cursor: pointer; transition: all 0.15s;
+  }
+  .btn-go { background: #00ff88; color: #000; }
+  .btn-go:hover { box-shadow: 0 0 16px rgba(0,255,136,0.4); }
+  .btn-go:disabled { background: #333; color: #666; cursor: not-allowed; box-shadow: none; }
+  .btn-clr { background: #1a1a2e; color: #ccc; border: 1px solid #333; }
+  .btn-clr:hover { border-color: #666; }
+  .speed-ctrl { display: flex; align-items: center; gap: 6px; margin-left: auto; color: #888; font-size: 11px; }
+  .speed-ctrl input { width: 80px; accent-color: #00ff88; }
+
+  /* Status */
+  .status { text-align: center; color: #555; font-size: 12px; margin-bottom: 10px; min-height: 18px; }
+  .status.on { color: #00ff88; }
+
+  /* Legend */
+  .legend { display: flex; gap: 16px; margin-bottom: 10px; font-size: 10px; color: #666; }
+  .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+  .l-ch { background: #60a5fa; }
+  .l-at { background: #f59e0b; }
+  .l-empty { background: #333; }
+  .l-active { background: #00ff88; }
+
+  /* Section labels */
+  .sec-label {
+    padding: 6px 14px; font-size: 12px; font-weight: bold;
+    border-radius: 6px 6px 0 0; display: flex; justify-content: space-between;
+  }
+  .sec-screen { background: #0d2a1a; border: 1px solid #2a5a3a; border-bottom: none; color: #4ade80; }
+  .sec-vram  { background: #1a0d2a; border: 1px solid #4a2a6a; border-bottom: none; color: #c084fc; }
+
+  /* Screen */
+  .screen-wrap {
+    background: #000; border: 3px solid #222; border-radius: 0 0 10px 10px;
+    padding: 10px; margin-bottom: 16px; position: relative; overflow: hidden;
+    box-shadow: inset 0 0 40px rgba(0,0,0,0.9);
+  }
+  .screen-wrap::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.12) 2px, rgba(0,0,0,0.12) 4px);
+    pointer-events: none; z-index: 2;
+  }
+  .screen-wrap::after {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.35) 100%);
+    pointer-events: none; z-index: 3;
+  }
+  .screen-grid {
+    display: grid; grid-template-columns: repeat(80, 10px);
+    font-size: 10px; line-height: 1.2; position: relative; z-index: 1;
+  }
+  .screen-grid .cell { width: 10px; height: 13px; text-align: center; }
+
+  /* VRAM */
+  .vram-wrap {
+    background: #0a0a14; border: 2px solid #3a2a5a; border-radius: 0 0 8px 8px;
+    padding: 10px; max-height: 380px; overflow-y: auto;
+  }
+  .vram-wrap::-webkit-scrollbar { width: 6px; }
+  .vram-wrap::-webkit-scrollbar-track { background: #0a0a14; }
+  .vram-wrap::-webkit-scrollbar-thumb { background: #3a2a5a; border-radius: 3px; }
+
+  .vram-row { display: flex; align-items: center; font-size: 11px; margin-bottom: 1px; }
+  .vram-addr { color: #555; min-width: 76px; user-select: none; }
+  .vram-byte {
+    display: inline-block; min-width: 26px; text-align: center;
+    padding: 0 2px; border-radius: 2px; transition: all 0.12s;
+  }
+  .vram-byte.ch { color: #60a5fa; }
+  .vram-byte.at { color: #f59e0b; }
+  .vram-byte.emp { color: #2a2a2a; }
+  .vram-byte.act {
+    background: #00ff88; color: #000 !important; font-weight: bold;
+    transform: scale(1.25); box-shadow: 0 0 10px rgba(0,255,136,0.6);
+  }
+  .vram-byte .lbl { font-size: 7px; display: block; opacity: 0.5; }
+  .vram-gap { display: inline-block; width: 6px; text-align: center; color: #2a2a2a; }
+  .vram-ascii { color: #4ade80; margin-left: 10px; font-size: 10px; letter-spacing: 1px; }
+
+  /* Color legend */
+  .color-legend { display: flex; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
+  .color-swatch {
+    width: 18px; height: 18px; border-radius: 3px; border: 1px solid #333;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 8px; color: #fff; text-shadow: 0 0 2px #000;
+  }
+</style>
+</head>
+<body>
+
+<h1>VGA 文本模式显存模拟器</h1>
+<p class="subtitle">地址 0xB8000 ~ 0xBFFFF · 80列 × 25行 · 每字符 = 字符码 + 属性字节 (2字节)</p>
+
+<div class="container">
+
+  <div class="info-bar">
+    <span class="c1">0xB8000</span> 起，每个字符占 <span class="c2">偶地址(字符码)</span> + <span class="c3">奇地址(属性字节)</span> = <span class="hl">2 字节</span> &nbsp;|&nbsp;
+    属性字节: 高4位=背景色 + 低4位=前景色 &nbsp;|&nbsp; 80×25×2 = <span class="hl">4000 字节 (3.9 KB)</span>
+  </div>
+
+  <div class="controls">
+    <input type="text" id="textInput" value="Hello World!" maxlength="80" placeholder="输入文本...">
+    <button class="btn btn-go" id="btnGo" onclick="startWrite()">▶ 写入显存</button>
+    <button class="btn btn-clr" onclick="clearAll()">✕ 清屏</button>
+    <div class="speed-ctrl">
+      速度: <input type="range" id="spd" min="1" max="10" value="5"> <span id="spdL">5x</span>
+    </div>
+  </div>
+
+  <div class="status" id="status">就绪 — 点击"写入显存"开始动画</div>
+
+  <div class="legend">
+    <span><i class="l-ch"></i> 字符码(ASCII)</span>
+    <span><i class="l-at"></i> 属性字节(颜色)</span>
+    <span><i class="l-empty"></i> 空(0x00)</span>
+    <span><i class="l-active"></i> 正在写入</span>
+  </div>
+
+  <!-- SCREEN -->
+  <div class="sec-label sec-screen">
+    <span>🖥 屏幕显示 (80 × 25)</span>
+    <span id="curPos">光标 (0, 0)</span>
+  </div>
+  <div class="screen-wrap">
+    <div class="screen-grid" id="grid"></div>
+  </div>
+
+  <!-- VRAM -->
+  <div class="sec-label sec-vram">
+    <span>📦 VRAM 字节视图 (0xB8000 起)</span>
+    <span id="vramInfo">已用 0 / 4000 B</span>
+  </div>
+  <div class="vram-wrap" id="vramWrap">
+    <div id="vramBody"></div>
+  </div>
+
+</div>
+
+<script>
+const COLS = 80, ROWS = 25, SZ = COLS * ROWS * 2; // 4000
+const BASE = 0xB8000;
+
+const VGA_COLORS = [
+  '#000','#00a','#0a0','#0aa','#a00','#a0a','#a50','#aaa',
+  '#555','#55f','#5f5','#5ff','#f55','#f5f','#ff5','#fff'
+];
+
+let vram = new Uint8Array(SZ);
+let busy = false;
+let timer = null;
+
+// Build screen grid
+(function(){
+  const g = document.getElementById('grid');
+  for (let i = 0; i < COLS * ROWS; i++) {
+    const c = document.createElement('span');
+    c.className = 'cell'; c.id = 's'+i;
+    c.textContent = ' '; c.style.color = '#888';
+    g.appendChild(c);
+  }
+})();
+
+// Build VRAM display (show first 2000 bytes = 125 rows × 16B)
+(function(){
+  const body = document.getElementById('vramBody');
+  const showRows = 125;
+  for (let r = 0; r < showRows; r++) {
+    const addr = BASE + r * 16;
+    const row = document.createElement('div');
+    row.className = 'vram-row';
+
+    const a = document.createElement('span');
+    a.className = 'vram-addr';
+    a.textContent = '0x' + addr.toString(16).toUpperCase().padStart(5,'0');
+    row.appendChild(a);
+
+    for (let b = 0; b < 16; b++) {
+      const idx = r*16+b;
+      const el = document.createElement('span');
+      el.className = 'vram-byte ' + (idx%2===0 ? 'ch' : 'at') + ' emp';
+      el.id = 'v'+idx;
+      el.innerHTML = '00<span class="lbl">·</span>';
+      row.appendChild(el);
+      if (b%2===1 && b<15) {
+        const gap = document.createElement('span');
+        gap.className = 'vram-gap'; gap.textContent = '│';
+        row.appendChild(gap);
+      }
+    }
+
+    const asc = document.createElement('span');
+    asc.className = 'vram-ascii'; asc.id = 'a'+r;
+    asc.textContent = '        ';
+    row.appendChild(asc);
+
+    body.appendChild(row);
+  }
+})();
+
+function render() {
+  // Screen
+  for (let row = 0; row < ROWS; row++) {
+    for (let col = 0; col < COLS; col++) {
+      const ci = row*COLS+col, bi = ci*2;
+      const el = document.getElementById('s'+ci);
+      const ch = vram[bi], at = vram[bi+1];
+      if (ch === 0 || ch < 32) {
+        el.textContent = ' '; el.style.color = '#888'; el.style.backgroundColor = '';
+      } else {
+        el.textContent = String.fromCharCode(ch);
+        el.style.color = VGA_COLORS[at & 0x0F];
+        el.style.backgroundColor = VGA_COLORS[(at>>4) & 0x0F];
+      }
+    }
+  }
+
+  // VRAM bytes
+  for (let i = 0; i < 2000; i++) {
+    const el = document.getElementById('v'+i);
+    if (!el) continue;
+    const val = vram[i];
+    const lbl = i%2===0 ? 'CH' : 'AT';
+    if (val === 0) {
+      el.innerHTML = '00<span class="lbl">·</span>';
+      el.className = el.className.replace(' act','') + ' emp';
+    } else {
+      el.innerHTML = val.toString(16).toUpperCase().padStart(2,'0') + '<span class="lbl">'+lbl+'</span>';
+      el.classList.remove('emp');
+    }
+  }
+
+  // ASCII summaries
+  for (let r = 0; r < 125; r++) {
+    const el = document.getElementById('a'+r);
+    if (!el) continue;
+    let t = '';
+    for (let b = 0; b < 16; b += 2) {
+      const c = vram[r*16+b];
+      t += (c >= 32 && c <= 126) ? String.fromCharCode(c) : '·';
+    }
+    el.textContent = t;
+  }
+
+  // Count used
+  let used = 0;
+  for (let i = 0; i < SZ; i++) if (vram[i]) used++;
+  document.getElementById('vramInfo').textContent = '已用 ' + used + ' / ' + SZ + ' B';
+}
+
+function highlight(idx) {
+  for (let i = 0; i < 2000; i++) {
+    const el = document.getElementById('v'+i);
+    if (!el) continue;
+    if (i === idx) {
+      el.classList.add('act');
+    } else {
+      el.classList.remove('act');
+    }
+  }
+}
+
+function startWrite() {
+  if (busy) return;
+  const text = document.getElementById('textInput').value;
+  if (!text) return;
+
+  busy = true;
+  document.getElementById('btnGo').disabled = true;
+  const st = document.getElementById('status');
+  st.textContent = '正在写入显存 0xB8000 ...';
+  st.className = 'status on';
+
+  const spd = +document.getElementById('spd').value;
+  const delay = 250 / spd;
+
+  let pos = 0, col = 0, row = 0;
+
+  function step() {
+    if (pos >= text.length) {
+      busy = false;
+      document.getElementById('btnGo').disabled = false;
+      st.textContent = '写入完成！文本已显示在屏幕上';
+      st.className = 'status';
+      highlight(-1);
+      return;
+    }
+
+    const bi = (row * COLS + col) * 2;
+    if (bi + 1 >= SZ) { busy = false; return; }
+
+    vram[bi]     = text.charCodeAt(pos);   // 字符码
+    vram[bi + 1] = 0x1F;                   // 属性: 白字蓝底 (FG=0xF, BG=0x1)
+
+    render();
+    highlight(bi);
+
+    document.getElementById('curPos').textContent = '光标 (' + col + ', ' + row + ')';
+
+    col++;
+    if (col >= COLS) { col = 0; row++; }
+    pos++;
+
+    timer = setTimeout(step, delay);
+  }
+  step();
+}
+
+function clearAll() {
+  if (busy) { clearTimeout(timer); busy = false; document.getElementById('btnGo').disabled = false; }
+  vram.fill(0);
+  render();
+  highlight(-1);
+  document.getElementById('curPos').textContent = '光标 (0, 0)';
+  document.getElementById('status').textContent = '已清屏';
+  document.getElementById('status').className = 'status';
+}
+
+document.getElementById('spd').addEventListener('input', function(){
+  document.getElementById('spdL').textContent = this.value + 'x';
+});
+
+render();
+
+// Auto demo
+setTimeout(startWrite, 600);
+</script>
+</body>
+</html>
