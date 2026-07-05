@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DDR5 内存初始化流程动画演示</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Microsoft YaHei', 'WenQuanYi Zen Hei', sans-serif; background: #0a0e27; color: #e0e0e0; overflow-x: hidden; }
+.header { text-align: center; padding: 30px 20px 10px; background: linear-gradient(180deg, #141a3a 0%, #0a0e27 100%); }
+.header h1 { font-size: 2em; color: #4fc3f7; margin-bottom: 8px; text-shadow: 0 0 20px rgba(79,195,247,0.3); }
+.header p { font-size: 1em; color: #90a4ae; }
+.container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+.controls { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin: 15px 0 20px; }
+.btn { padding: 10px 24px; border: 2px solid; border-radius: 25px; cursor: pointer; font-size: 0.95em; font-weight: bold; transition: all 0.3s; background: transparent; font-family: inherit; }
+.btn.play { border-color: #4caf50; color: #4caf50; }
+.btn.play:hover { background: #4caf50; color: #fff; }
+.btn.pause { border-color: #ff9800; color: #ff9800; }
+.btn.pause:hover { background: #ff9800; color: #fff; }
+.btn.reset { border-color: #f44336; color: #f44336; }
+.btn.reset:hover { background: #f44336; color: #fff; }
+.btn.step { border-color: #4fc3f7; color: #4fc3f7; }
+.btn.step:hover { background: #4fc3f7; color: #fff; }
+.flow-container { background: #141a3a; border-radius: 16px; padding: 25px; margin-bottom: 20px; border: 1px solid #2a3a5c; position: relative; min-height: 500px; }
+.phase-indicator { display: flex; gap: 8px; margin-bottom: 20px; justify-content: center; flex-wrap: wrap; }
+.phase-dot { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.85em; transition: all 0.5s; border: 3px solid transparent; cursor: pointer; }
+.phase-dot.active { transform: scale(1.15); border-color: #fff; box-shadow: 0 0 20px currentColor; }
+.phase-dot.done { opacity: 0.5; }
+.flow-step { display: flex; align-items: center; padding: 12px 16px; margin: 8px 0; border-radius: 10px; background: rgba(255,255,255,0.03); border-left: 4px solid #2a3a5c; transition: all 0.4s; }
+.flow-step.current { background: rgba(79,195,247,0.1); border-left-color: #4fc3f7; transform: translateX(5px); box-shadow: 0 4px 15px rgba(79,195,247,0.15); }
+.flow-step.done { opacity: 0.6; border-left-color: #4caf50; }
+.step-num { width: 36px; height: 36px; min-width: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.85em; margin-right: 14px; background: #2a3a5c; }
+.flow-step.current .step-num { background: #4fc3f7; color: #0a0e27; }
+.flow-step.done .step-num { background: #4caf50; }
+.step-info { flex: 1; }
+.step-info .name { font-weight: bold; font-size: 0.95em; margin-bottom: 3px; }
+.step-info .desc { font-size: 0.8em; color: #90a4ae; }
+.step-status { font-size: 0.8em; padding: 4px 10px; border-radius: 12px; }
+.step-status.running { background: rgba(79,195,247,0.2); color: #4fc3f7; }
+.step-status.complete { background: rgba(76,175,80,0.2); color: #4caf50; }
+.step-status.waiting { color: #607d8b; }
+.progress-bar { height: 4px; background: #2a3a5c; border-radius: 2px; margin: 20px 0 10px; overflow: hidden; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, #4fc3f7, #4caf50); border-radius: 2px; transition: width 0.8s ease; width: 0%; }
+.info-box { background: #1a2240; border-radius: 12px; padding: 20px; margin-top: 15px; border: 1px solid #2a3a5c; }
+.info-box h3 { color: #4fc3f7; margin-bottom: 10px; font-size: 1.1em; }
+.info-box .detail { font-size: 0.9em; line-height: 1.7; color: #b0bec5; }
+.info-box .highlight { color: #ffcc80; font-weight: bold; }
+.phase-stats { display: flex; justify-content: space-around; margin-top: 15px; }
+.stat { text-align: center; }
+.stat .value { font-size: 1.5em; font-weight: bold; color: #4fc3f7; }
+.stat .label { font-size: 0.8em; color: #90a4ae; margin-top: 4px; }
+.speed-control { display: flex; align-items: center; gap: 10px; color: #90a4ae; font-size: 0.85em; }
+.speed-control input { width: 100px; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>⚡ Intel Birch Stream 平台 DDR5 内存初始化</h1>
+  <p>实时演示 100+ 训练步骤的执行流程 | Granite Rapids (GNR-SP)</p>
+</div>
+
+<div class="container">
+  <div class="controls">
+    <button class="btn play" onclick="playAnim()">▶ 播放</button>
+    <button class="btn pause" onclick="pauseAnim()">⏸ 暂停</button>
+    <button class="btn step" onclick="stepAnim()">⏭ 单步</button>
+    <button class="btn reset" onclick="resetAnim()">↺ 重置</button>
+    <div class="speed-control">
+      <span>速度:</span>
+      <input type="range" id="speed" min="1" max="10" value="4" onchange="updateSpeed()">
+      <span id="speedLabel">4x</span>
+    </div>
+  </div>
+
+  <div class="phase-indicator" id="phaseIndicator"></div>
+
+  <div class="flow-container">
+    <div class="progress-bar"><div class="progress-fill" id="progressBar"></div></div>
+    <div id="flowSteps"></div>
+    <div class="info-box" id="infoBox">
+      <h3>📋 当前阶段详情</h3>
+      <div class="detail" id="infoDetail">点击「播放」开始演示 DDR5 内存初始化的完整流程...</div>
+    </div>
+    <div class="phase-stats">
+      <div class="stat"><div class="value" id="statTotal">0</div><div class="label">总步骤</div></div>
+      <div class="stat"><div class="value" id="statDone">0</div><div class="label">已完成</div></div>
+      <div class="stat"><div class="value" id="statCurrent">0</div><div class="label">当前阶段</div></div>
+      <div class="stat"><div class="value" id="statTime">0s</div><div class="label">预计耗时</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const PHASES = [
+  {
+    name: 'Pre-MRC 准备',
+    color: '#42a5f5',
+    steps: [
+      { name: 'CPU 型号与步进校验', desc: 'CPUID 检测处理器型号，支持 GNR-SP/SRF-SP/CWF/GRR/GNR-D', time: 50 },
+      { name: '系统启动模式判断', desc: '确定是 Normal Boot 还是 S3 Resume 唤醒路径', time: 30 },
+      { name: 'SysHost 数据结构初始化', desc: '初始化全局配置结构体，分配训练缓冲区', time: 80 },
+      { name: 'IMC / 通道 / 拓扑配置', desc: '配置内存控制器数量(DdrMaxImc)、每MC通道数(DdrNumChPerMc)', time: 60 },
+      { name: 'NVRAM 训练数据加载', desc: '从非易失存储读取上次训练结果，快速启动时跳过重训', time: 70 },
+      { name: 'MemFlow 流程控制配置', desc: '通过 Setup 配置启用/禁用具体训练步骤，处理 Silicon Workaround', time: 40 },
+      { name: 'UPI 多路拓扑初始化', desc: '初始化多路服务器 UPI 互联链路拓扑', time: 60 },
+    ]
+  },
+  {
+    name: 'A. 前侧 CA 训练',
+    color: '#ef5350',
+    steps: [
+      { name: 'PreTrainingInit', desc: '初始化训练引擎，准备 Pattern Generator', time: 120 },
+      { name: 'RCD DCS Timing', desc: 'RCD 芯片 DCS(DRAM Chip Select)侧时序训练', time: 200 },
+      { name: 'RCD DCS Vref', desc: 'DCS 侧参考电压优化', time: 150 },
+      { name: 'CS Timing Training', desc: '片选(Chip Select)信号时序校准', time: 180 },
+      { name: 'RCD DCA Timing Simple', desc: 'DCA 总线粗调时序 (±1/4 UI 步长)', time: 250 },
+      { name: 'RCD DCA Vref Simple', desc: 'DCA 总线粗调参考电压', time: 150 },
+      { name: 'CA Timing Simple', desc: '命令/地址总线粗调时序', time: 200 },
+      { name: 'DCA Tap1 Coarse Vref Centering', desc: 'DFE Tap1 粗调 Vref 中心化', time: 180 },
+      { name: 'RCD DCA Timing Complex', desc: 'DCA 总线精调时序 (±1/64 UI 步长)', time: 350 },
+      { name: 'RCD DCA Vref Complex', desc: 'DCA 总线精调参考电压', time: 250 },
+      { name: 'CA Vref Complex', desc: 'CA 总线精调参考电压', time: 200 },
+      { name: 'CA Timing Complex', desc: 'CA 总线精调时序', time: 250 },
+      { name: 'RCD DCA TCO Training', desc: '温度补偿振荡器校准', time: 200 },
+      { name: 'DCA/DCK Duty Cycle', desc: 'DCA 时钟和 DCK 占空比校准', time: 180 },
+      { name: 'RCD DCA DFE (Tap1→Full)', desc: 'DCA 总线 DFE 均衡系数训练', time: 350 },
+      { name: 'CMD Normalization Early', desc: '早期命令归一化', time: 120 },
+    ]
+  },
+  {
+    name: 'B. 后侧 CA 训练',
+    color: '#ab47bc',
+    steps: [
+      { name: 'QCS/QCA Init', desc: '初始化 RCD 后侧 QCS/QCA 端口', time: 100 },
+      { name: 'RCD QCS Timing', desc: '后侧片选(QCS)时序训练', time: 180 },
+      { name: 'RCD QCA Training', desc: '后侧命令/地址(QCA)训练', time: 220 },
+      { name: 'QCA Complex Multi-Vref', desc: '后侧多 Vref 精调优化', time: 250 },
+      { name: 'Post Backside CMD Training', desc: '后侧命令训练后处理', time: 120 },
+    ]
+  },
+  {
+    name: 'C. DRAM Init + 读训练',
+    color: '#ff7043',
+    steps: [
+      { name: 'DramInit', desc: 'DDR5 MR 寄存器编程 + PMIC 电压配置 (VDD/VDDQ/VPP)', time: 300 },
+      { name: 'Receive Enable Training', desc: 'DQS 选通信号采样窗口搜索 (粗扫→边界→验证→中心)', time: 400 },
+      { name: 'Read DQ-DQS Coarse', desc: '读方向 DQ 相对 DQS 的粗对准 (±0.5 UI)', time: 250 },
+      { name: 'Read DQ Swizzle Discovery', desc: 'DQ 比特映射关系自动发现 (PCB 走线交叉检测)', time: 300 },
+      { name: 'Read DQ-DQS Pre DFE 2D Centering', desc: 'DFE 使能前 TI-Vref 二维扫描中心化', time: 500 },
+      { name: 'Read DQ-DQS Duty Cycle', desc: '读方向占空比调整器校准', time: 200 },
+      { name: 'Read DQ-DQS DFE Training', desc: '读方向 DFE 系数训练 (Tap1→Tap2→TapN)', time: 450 },
+      { name: 'Read DQ-DQS Post DFE 2D Centering', desc: 'DFE 使能后重新二维中心化 (眼图显著增大)', time: 400 },
+    ]
+  },
+  {
+    name: 'D. 写训练',
+    color: '#ffa726',
+    steps: [
+      { name: 'Write Leveling', desc: 'DQS 到 CK 相位对齐 (Fly-by 拓扑延迟补偿)', time: 350 },
+      { name: 'Write DQ-DQS Coarse', desc: '写方向 DQ-DQS 粗对准', time: 250 },
+      { name: 'Write DQ-DQS Pre DFE 2D Centering', desc: 'DFE 前写方向二维中心化', time: 400 },
+      { name: 'Write DQ-DQS TCO', desc: '写方向温度补偿校准', time: 200 },
+      { name: 'Write DQ-DQS DFE', desc: '写方向 DFE 系数训练', time: 350 },
+      { name: 'Write DQ-DQS ODT Latency', desc: '写操作 ODT 端接延迟配置', time: 180 },
+    ]
+  },
+  {
+    name: 'E. 优化与后处理',
+    color: '#66bb6a',
+    steps: [
+      { name: 'Command Normalization', desc: '命令时序统一归一化', time: 150 },
+      { name: 'Rx Jitter Cancellation', desc: '接收端自适应抖动消除', time: 250 },
+      { name: 'Sense Amp Optimization', desc: 'DRAM 读出放大器时序优化', time: 200 },
+      { name: 'Round Trip Latency Optimization', desc: '读-写往返延迟最小化', time: 250 },
+      { name: 'Turnaround Optimization', desc: '总线读-写转向等待周期最短化', time: 200 },
+      { name: 'PPR Flow', desc: 'Post-Package Repair: DRAM 冗余行/列修复', time: 300 },
+      { name: 'ML Data Collection', desc: '机器学习训练数据采集 (为未来 AI 自训练做准备)', time: 250 },
+    ]
+  },
+  {
+    name: 'Post-MRC 发布',
+    color: '#26a69a',
+    steps: [
+      { name: 'Install EFI Memory HOB', desc: '安装 EFI 内存 Hand-Off Block，通知 DXE 阶段内存可用', time: 80 },
+      { name: 'Publish Training Data HOB', desc: '保存训练数据、Margin 结果到 HOB', time: 120 },
+      { name: 'Save to NVRAM', desc: '将训练结果持久化到 NVRAM 供下次启动使用', time: 150 },
+      { name: 'OS Boot', desc: '✓ 内存初始化完成，操作系统引导', time: 50 },
+    ]
+  }
+];
+
+let currentPhase = 0;
+let currentStep = 0;
+let animTimer = null;
+let speed = 4;
+let totalSteps = 0;
+let doneSteps = 0;
+
+// Count total steps
+PHASES.forEach(p => { totalSteps += p.steps.length; });
+
+function updateSpeed() {
+  speed = parseInt(document.getElementById('speed').value);
+  document.getElementById('speedLabel').textContent = speed + 'x';
+  if (animTimer) { pauseAnim(); playAnim(); }
+}
+
+function render() {
+  // Phase indicators
+  let phaseHtml = '';
+  PHASES.forEach((p, i) => {
+    let cls = '';
+    if (i < currentPhase) cls = 'done';
+    else if (i === currentPhase) cls = 'active';
+    phaseHtml += `<div class="phase-dot ${cls}" style="background:${p.color};color:#fff" onclick="jumpToPhase(${i})">${i+1}</div>`;
+  });
+  document.getElementById('phaseIndicator').innerHTML = phaseHtml;
+
+  // Flow steps
+  let phase = PHASES[currentPhase];
+  let stepsHtml = '';
+  phase.steps.forEach((s, i) => {
+    let cls = '';
+    let status = 'waiting';
+    if (i < currentStep) { cls = 'done'; status = 'complete'; }
+    else if (i === currentStep) { cls = 'current'; status = 'running'; }
+    stepsHtml += `
+      <div class="flow-step ${cls}">
+        <div class="step-num">${i+1}</div>
+        <div class="step-info">
+          <div class="name">${s.name}</div>
+          <div class="desc">${s.desc}</div>
+        </div>
+        <div class="step-status ${status}">${status === 'running' ? '⏳ 执行中' : status === 'complete' ? '✓ 完成' : '等待'}</div>
+      </div>`;
+  });
+  document.getElementById('flowSteps').innerHTML = stepsHtml;
+
+  // Progress
+  doneSteps = 0;
+  for (let i = 0; i < currentPhase; i++) doneSteps += PHASES[i].steps.length;
+  doneSteps += currentStep;
+  let pct = Math.round((doneSteps / totalSteps) * 100);
+  document.getElementById('progressBar').style.width = pct + '%';
+
+  // Info box
+  if (currentStep < phase.steps.length) {
+    let s = phase.steps[currentStep];
+    document.getElementById('infoDetail').innerHTML = `
+      <span class="highlight">阶段 ${currentPhase+1}: ${phase.name}</span><br>
+      <span class="highlight">步骤 ${currentStep+1}/${phase.steps.length}: ${s.name}</span><br><br>
+      ${s.desc}<br><br>
+      <span style="color:#90a4ae">预计耗时: ~${s.time}ms | 执行模式: MRC_MP_PARALLEL | Phase Filter: ${currentPhase===0?'MRC_PF_ALL':'MRC_PF_COLD'}</span>
+    `;
+  }
+
+  // Stats
+  document.getElementById('statTotal').textContent = totalSteps;
+  document.getElementById('statDone').textContent = doneSteps;
+  document.getElementById('statCurrent').textContent = currentPhase + 1;
+  let totalTime = 0;
+  for (let i = 0; i < currentPhase; i++) PHASES[i].steps.forEach(s => totalTime += s.time);
+  for (let i = 0; i < currentStep; i++) totalTime += phase.steps[i].time;
+  document.getElementById('statTime').textContent = (totalTime / 1000).toFixed(1) + 's';
+}
+
+function nextStep() {
+  let phase = PHASES[currentPhase];
+  currentStep++;
+  if (currentStep >= phase.steps.length) {
+    currentStep = 0;
+    currentPhase++;
+    if (currentPhase >= PHASES.length) {
+      currentPhase = PHASES.length - 1;
+      currentStep = PHASES[currentPhase].steps.length;
+      pauseAnim();
+      render();
+      return;
+    }
+  }
+  render();
+}
+
+function playAnim() {
+  if (animTimer) return;
+  if (currentPhase >= PHASES.length - 1 && currentStep >= PHASES[currentPhase].steps.length) {
+    resetAnim();
+  }
+  animTimer = setInterval(nextStep, Math.round(800 / speed));
+}
+
+function pauseAnim() {
+  if (animTimer) { clearInterval(animTimer); animTimer = null; }
+}
+
+function stepAnim() {
+  pauseAnim();
+  nextStep();
+}
+
+function resetAnim() {
+  pauseAnim();
+  currentPhase = 0;
+  currentStep = 0;
+  render();
+}
+
+function jumpToPhase(idx) {
+  pauseAnim();
+  currentPhase = idx;
+  currentStep = 0;
+  render();
+}
+
+// Init
+render();
+</script>
+</body>
+</html>
